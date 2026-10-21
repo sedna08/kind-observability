@@ -201,7 +201,7 @@ spec:
             - -ec
           args:
             - >-
-              grafana-cli --pluginsDir /var/lib/grafana/plugins
+              grafana cli --pluginsDir /var/lib/grafana/plugins
               plugins install victoriametrics-logs-datasource
           volumeMounts:
             - name: plugins
