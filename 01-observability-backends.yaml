@@ -1,0 +1,425 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: observability
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: victoriametrics-data
+  namespace: observability
+spec:
+  resources:
+    requests:
+      storage: 5Gi
+  accessModes:
+    - ReadWriteOnce
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: victoriametrics
+  namespace: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: victoriametrics
+  template:
+    metadata:
+      labels:
+        app: victoriametrics
+    spec:
+      containers:
+        - name: victoriametrics
+          image: victoriametrics/victoria-metrics:v1.154.1
+          imagePullPolicy: IfNotPresent
+          args:
+            - -storageDataPath=/storage
+            - -retentionPeriod=7d
+            - -httpListenAddr=:8428
+            - -opentelemetry.usePrometheusNaming=true
+          ports:
+            - name: http
+              containerPort: 8428
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          volumeMounts:
+            - name: data
+              mountPath: /storage
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: victoriametrics-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: victoriametrics
+  namespace: observability
+spec:
+  selector:
+    app: victoriametrics
+  ports:
+    - name: http
+      port: 8428
+      targetPort: http
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: victorialogs-data
+  namespace: observability
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: victorialogs
+  namespace: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: victorialogs
+  template:
+    metadata:
+      labels:
+        app: victorialogs
+    spec:
+      containers:
+        - name: victorialogs
+          image: victoriametrics/victoria-logs:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - -storageDataPath=/storage
+            - -retentionPeriod=7d
+            - -httpListenAddr=:9428
+          ports:
+            - name: http
+              containerPort: 9428
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          volumeMounts:
+            - name: data
+              mountPath: /storage
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: victorialogs-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: victorialogs
+  namespace: observability
+spec:
+  selector:
+    app: victorialogs
+  ports:
+    - name: http
+      port: 9428
+      targetPort: http
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: observability
+data:
+  datasources.yaml: |-
+    apiVersion: 1
+    datasources:
+      - name: VictoriaMetrics
+        uid: victoriametrics
+        type: prometheus
+        access: proxy
+        url: http://victoriametrics.observability.svc.cluster.local:8428
+        isDefault: true
+        editable: true
+      - name: VictoriaLogs
+        uid: victorialogs
+        type: victoriametrics-logs-datasource
+        access: proxy
+        url: http://victorialogs.observability.svc.cluster.local:9428
+        isDefault: false
+        editable: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      initContainers:
+        - name: install-victorialogs-plugin
+          image: grafana/grafana:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -ec
+          args:
+            - >-
+              grafana-cli --pluginsDir /var/lib/grafana/plugins
+              plugins install victoriametrics-logs-datasource
+          volumeMounts:
+            - name: plugins
+              mountPath: /var/lib/grafana/plugins
+      containers:
+        - name: grafana
+          image: grafana/grafana:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: GF_SECURITY_ADMIN_USER
+              value: admin
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              value: admin
+            - name: GF_USERS_ALLOW_SIGN_UP
+              value: "false"
+          ports:
+            - name: http
+              containerPort: 3000
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          volumeMounts:
+            - name: datasources
+              mountPath: /etc/grafana/provisioning/datasources
+              readOnly: true
+            - name: plugins
+              mountPath: /var/lib/grafana/plugins
+      volumes:
+        - name: datasources
+          configMap:
+            name: grafana-datasources
+        - name: plugins
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: observability
+spec:
+  selector:
+    app: grafana
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  namespace: observability
+data:
+  alertmanager.yaml: |
+    global:
+      resolve_timeout: 1m
+    route:
+      receiver: local-null
+      group_by: [alertname, namespace]
+      group_wait: 30s
+      group_interval: 30s
+      repeat_interval: 30m
+    receivers:
+      - name: local-null
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alertmanager
+  namespace: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: alertmanager
+  template:
+    metadata:
+      labels:
+        app: alertmanager
+    spec:
+      containers:
+        - name: alertmanager
+          image: prom/alertmanager:v0.28.1
+          imagePullPolicy: IfNotPresent
+          args:
+            - --config.file=/etc/alertmanager/alertmanager.yaml
+            - --storage.path=/alertmanager
+          ports:
+            - name: http
+              containerPort: 9093
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alertmanager
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: alertmanager-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager
+  namespace: observability
+spec:
+  selector:
+    app: alertmanager
+  ports:
+    - name: http
+      port: 9093
+      targetPort: http
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vmalert-rules
+  namespace: observability
+data:
+  demo-rules.yml: |
+    groups:
+      - name: demo-application
+        interval: 15s
+        rules:
+          - alert: DemoApiDown
+            expr: up{job="demo-api"} == 0
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: Demo API Prometheus endpoint is down
+              description: The OTel Collector cannot scrape the demo-api target.
+          - alert: DemoApiErrors
+            expr: sum(rate(demo_http_requests_total{status=~"5.."}[2m])) > 0
+            for: 1m
+            labels:
+              severity: warning
+            annotations:
+              summary: Demo API is returning HTTP 5xx responses
+              description: At least one 5xx response per second-window was observed.
+          - alert: DemoTelemetryMissing
+            expr: absent_over_time(demo_http_requests_total[3m]) == 1
+            for: 1m
+            labels:
+              severity: warning
+            annotations:
+              summary: Demo API metrics have stopped arriving
+              description: No demo HTTP request series has been stored for three mintues.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vmalert
+  namespace: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vmalert
+  template:
+    metadata:
+      labels:
+        app: vmalert
+    spec:
+      containers:
+        - name: vmalert
+          image: victoriametrics/vmalert:v1.154.1
+          imagePullPolicy: IfNotPresent
+          args:
+            - -datasource.url=http://victoriametrics:8428
+            - -remoteWrite.url=http://victoriametrics:8428
+            - -notifier.url=http://alertmanager:9093
+            - -rule=/etc/vmalert/rules/*.yml
+            - -httpListenAddr=:8880
+          ports:
+            - name: http
+              containerPort: 8880
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          volumeMounts:
+            - name: rules
+              mountPath: /etc/vmalert/rules
+              readOnly: true
+      volumes:
+        - name: rules
+          configMap:
+            name: vmalert-rules
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vmalert
+  namespace: observability
+spec:
+  selector:
+    app: vmalert
+  ports:
+    - name: http
+      port: 8880
+      targetPort: http

@@ -1,0 +1,10 @@
+# Handle text files automatically with LF endings on checkout
+* text=auto eol=lf
+
+# Explicitly enforce LF for known text files
+*.js text eol=lf
+*.ts text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.html text eol=lf
+*.css text eol=lf
