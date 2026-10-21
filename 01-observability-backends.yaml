@@ -387,9 +387,9 @@ spec:
           image: victoriametrics/vmalert:v1.154.1
           imagePullPolicy: IfNotPresent
           args:
-            - -datasource.url=http://victoriametrics:8428
-            - -remoteWrite.url=http://victoriametrics:8428
-            - -notifier.url=http://alertmanager:9093
+            - -datasource.url=http://victoriametrics.observability.svc.cluster.local:8428
+            - -remoteWrite.url=http://victoriametrics.observability.svc.cluster.local:8428
+            - -notifier.url=http://alertmanager.observability.svc.cluster.local:9093
             - -rule=/etc/vmalert/rules/*.yml
             - -httpListenAddr=:8880
           ports:
