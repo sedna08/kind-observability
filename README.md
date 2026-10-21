@@ -1,4 +1,4 @@
-## Open the use interfaces:
+## Open the user interfaces:
 
 Use separate terminals as needed:
 
