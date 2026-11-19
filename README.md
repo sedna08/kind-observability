@@ -14,12 +14,12 @@ URLs:
 | Component | Local URL | Purpose |
 |---|---|---|
 | Grafana | http://localhost:3000 | Dashboards and Explore |
-| VictoriaMetrics | http://localhost:8428/vmui | DirectPromQL/MetricsQL exploration |
+| VictoriaMetrics | http://localhost:8428/vmui | Direct PromQL/MetricsQL exploration |
 | VictoriaLogs | http://localhost:9428/select/vmui | Direct LogsQL exploration |
 | VMAlert | http://localhost:8880 | Rules and alert states |
 | Alertmanager | http://localhost:9093 | Active alerts, silences, routing status|
 
-Grafana lab credentials are `admin` / `admin`. Grafana may require a password change on first login. Never use this credential pattern outside a dispoasable local lab.
+Grafana lab credentials are `admin` / `admin`. Grafana may require a password change on first login. Never use this credential pattern outside a disposable local lab.
 
 Verify provisioned data sources:
 
