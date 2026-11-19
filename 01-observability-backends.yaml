@@ -365,7 +365,7 @@ data:
               severity: warning
             annotations:
               summary: Demo API metrics have stopped arriving
-              description: No demo HTTP request series has been stored for three mintues.
+              description: No demo HTTP request series has been stored for three minutes.
 ---
 apiVersion: apps/v1
 kind: Deployment
